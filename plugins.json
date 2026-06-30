@@ -9,12 +9,6 @@
       "主动能力",
       "插件整合"
     ],
-    "social_link": "https://github.com/menglimi",
-    "version": "5.4.4",
-    "astrbot_version": ">=4.22.0",
-    "support_platforms": [
-      "aiocqhttp"
-    ],
-    "category": "AI 增强"
+    "social_link": "https://github.com/menglimi"
   }
 }

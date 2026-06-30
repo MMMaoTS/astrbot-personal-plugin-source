@@ -104,9 +104,9 @@ def fetch_metadata(repo: str, branch: str | None = None) -> dict:
 
 def normalize_entry(plugin_id: str, base: dict, metadata: dict, fallback_repo: str) -> dict:
     repo = normalize_repo_url(
-        base.get("repo")
+        fallback_repo
+        or base.get("repo")
         or metadata.get("repo")
-        or fallback_repo
     )
 
     entry = {

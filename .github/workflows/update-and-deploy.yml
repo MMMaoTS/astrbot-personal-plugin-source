@@ -9,7 +9,7 @@ on:
       - "scripts/build_plugins_json.py"
       - ".github/workflows/update.yml"
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:

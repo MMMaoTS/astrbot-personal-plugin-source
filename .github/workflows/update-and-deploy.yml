@@ -1,33 +1,29 @@
-name: Update and Deploy AstrBot Plugin Source
+name: Update AstrBot Personal Plugin Source
 
 on:
   push:
     branches:
       - main
+    paths:
+      - "watchlist.json"
+      - "scripts/build_plugins_json.py"
+      - ".github/workflows/update.yml"
   schedule:
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: astrbot-plugin-source-pages
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  build-and-deploy:
+  update:
     runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,14 +38,16 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/build_plugins_json.py
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - name: Commit plugins.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
+          if git diff --quiet plugins.json; then
+            echo "plugins.json unchanged."
+            exit 0
+          fi
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          git add plugins.json
+          git commit -m "chore: update plugins.json"
+          git push

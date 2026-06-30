@@ -19,13 +19,14 @@ OFFICIAL_PLUGINS_URL = (
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
 
-OFFICIAL_FIELDS = [
-    "display_name",
-    "desc",
-    "author",
-    "repo",
-    "tags",
-    "social_link",
+# 与官方 plugins.json 保持兼容，同时保留 metadata.yaml 中常见的可选展示字段。
+OPTIONAL_METADATA_FIELDS = [
+    "short_desc",
+    "version",
+    "astrbot_version",
+    "support_platforms",
+    "category",
+    "updated_at",
 ]
 
 
@@ -68,24 +69,7 @@ def default_social_link(repo: str) -> str:
 
 
 def normalize_tags(value) -> list:
-    if isinstance(value, list):
-        return value
-    return []
-
-
-def normalize_market_entry(entry: dict) -> dict:
-    repo = normalize_repo_url(entry.get("repo", ""))
-
-    normalized = {
-        "display_name": safe_str(entry.get("display_name")),
-        "desc": safe_str(entry.get("desc")),
-        "author": safe_str(entry.get("author")),
-        "repo": repo,
-        "tags": normalize_tags(entry.get("tags")),
-        "social_link": safe_str(entry.get("social_link")) or default_social_link(repo),
-    }
-
-    return normalized
+    return value if isinstance(value, list) else []
 
 
 def load_official_plugins() -> dict:
@@ -102,10 +86,14 @@ def get_default_branch(owner: str, name: str) -> str:
     return data.get("default_branch") or "main"
 
 
-def fetch_metadata(owner: str, name: str, branch: str) -> dict:
+def fetch_metadata(repo: str, branch: str | None = None) -> dict:
+    owner, repo_name = parse_github_repo(repo)
+    if not branch:
+        branch = get_default_branch(owner, repo_name)
+
     raw_url = (
         f"https://raw.githubusercontent.com/"
-        f"{owner}/{name}/{branch}/metadata.yaml"
+        f"{owner}/{repo_name}/{branch}/metadata.yaml"
     )
     text = request_text(raw_url)
     data = yaml.safe_load(text) or {}
@@ -114,44 +102,53 @@ def fetch_metadata(owner: str, name: str, branch: str) -> dict:
     return data
 
 
-def build_from_metadata(plugin_id: str, item: dict) -> dict:
-    repo = normalize_repo_url(item.get("repo", ""))
-    if not repo:
-        raise ValueError(f"{plugin_id}: missing repo")
-
-    owner, repo_name = parse_github_repo(repo)
-    branch = safe_str(item.get("branch"))
-
-    if not branch:
-        branch = get_default_branch(owner, repo_name)
-
-    metadata = fetch_metadata(owner, repo_name, branch)
-
-    display_name = (
-        safe_str(metadata.get("display_name"))
-        or safe_str(metadata.get("name"))
-        or plugin_id
+def normalize_entry(plugin_id: str, base: dict, metadata: dict, fallback_repo: str) -> dict:
+    repo = normalize_repo_url(
+        base.get("repo")
+        or metadata.get("repo")
+        or fallback_repo
     )
 
-    desc = (
-        safe_str(metadata.get("desc"))
-        or safe_str(metadata.get("description"))
-        or safe_str(metadata.get("short_desc"))
-        or ""
-    )
-
-    author = safe_str(metadata.get("author")) or owner
-
-    tags = item.get("tags", metadata.get("tags", []))
-
-    return {
-        "display_name": display_name,
-        "desc": desc,
-        "author": author,
+    entry = {
+        "display_name": (
+            safe_str(base.get("display_name"))
+            or safe_str(metadata.get("display_name"))
+            or safe_str(metadata.get("name"))
+            or plugin_id
+        ),
+        "desc": (
+            safe_str(base.get("desc"))
+            or safe_str(metadata.get("desc"))
+            or safe_str(metadata.get("description"))
+            or ""
+        ),
+        "author": (
+            safe_str(base.get("author"))
+            or safe_str(metadata.get("author"))
+            or ""
+        ),
         "repo": repo,
-        "tags": normalize_tags(tags),
-        "social_link": safe_str(metadata.get("social_link")) or default_social_link(repo),
+        "tags": normalize_tags(base.get("tags") or metadata.get("tags")),
+        "social_link": (
+            safe_str(base.get("social_link"))
+            or safe_str(metadata.get("author_url"))
+            or safe_str(metadata.get("social_link"))
+            or default_social_link(repo)
+        ),
     }
+
+    # 保留官方条目已有的额外字段。
+    for key, value in base.items():
+        if key not in entry and value not in (None, "", []):
+            entry[key] = value
+
+    # 从 metadata.yaml 补充版本、兼容版本、平台等字段。
+    for key in OPTIONAL_METADATA_FIELDS:
+        value = metadata.get(key)
+        if value not in (None, "", []):
+            entry[key] = value
+
+    return entry
 
 
 def load_watchlist() -> list[dict]:
@@ -178,18 +175,32 @@ def build_plugins_json() -> dict:
             raise ValueError("Each watchlist plugin must be an object")
 
         plugin_id = safe_str(item.get("id"))
+        repo = normalize_repo_url(item.get("repo"))
+
         if not plugin_id:
             raise ValueError("Each watchlist plugin must contain id")
+        if not repo:
+            raise ValueError(f"{plugin_id}: missing repo")
 
         official_entry = official_plugins.get(plugin_id)
+        if not isinstance(official_entry, dict):
+            official_entry = {}
 
-        if isinstance(official_entry, dict):
-            result[plugin_id] = normalize_market_entry(official_entry)
-            print(f"OK official: {plugin_id}")
-            continue
+        try:
+            metadata = fetch_metadata(repo, item.get("branch"))
+        except Exception as exc:
+            metadata = {}
+            print(f"WARN metadata failed: {plugin_id}: {exc}", file=sys.stderr)
 
-        result[plugin_id] = build_from_metadata(plugin_id, item)
-        print(f"OK metadata: {plugin_id}")
+        result[plugin_id] = normalize_entry(
+            plugin_id=plugin_id,
+            base=official_entry,
+            metadata=metadata,
+            fallback_repo=repo,
+        )
+
+        source = "official+metadata" if official_entry else "metadata"
+        print(f"OK {source}: {plugin_id}")
 
     if not result:
         raise ValueError("No plugins generated. Check watchlist.json.")

@@ -8,16 +8,27 @@ on:
       - "watchlist.json"
       - "scripts/build_plugins_json.py"
       - ".github/workflows/update-and-deploy.yml"
+      - "README.md"
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: astrbot-plugin-source-pages-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  update:
+  update-and-deploy:
     runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout
@@ -45,9 +56,39 @@ jobs:
 
           if git diff --quiet plugins.json; then
             echo "plugins.json unchanged."
-            exit 0
+          else
+            git add plugins.json
+            git commit -m "chore: update plugins.json"
+            git push
           fi
 
-          git add plugins.json
-          git commit -m "chore: update plugins.json"
-          git push
+      - name: Prepare Pages artifact
+        run: |
+          rm -rf site
+          mkdir -p site
+          cp plugins.json site/plugins.json
+          cat > site/index.html <<'EOF'
+          <!doctype html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <title>AstrBot Personal Plugin Source</title>
+          </head>
+          <body>
+            <h1>AstrBot Personal Plugin Source</h1>
+            <p>Use <a href="./plugins.json">plugins.json</a> as the AstrBot plugin source.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -2,7 +2,11 @@
   "plugins": [
     {
       "id": "astrbot-plugin-private-companion",
-      "repo": "https://github.com/menglimi/astrbot_plugin_private_companion/tree/main"
+      "repo": "https://github.com/menglimi/astrbot_plugin_private_companion"
+    },
+    {
+      "id": "astrbot_plugin_memory_companion",
+      "repo": "https://github.com/menglimi/astrbot_plugin_memory_companion"
     }
   ]
 }
